@@ -1,0 +1,3 @@
+# go build 在仓根编出的程序
+/claude-switch
+dist/

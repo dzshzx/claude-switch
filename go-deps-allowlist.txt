@@ -1,0 +1,2 @@
+# claude-switch（./...，linux/amd64、CGO_ENABLED=0）链接的第三方 Go 模块，一行一个、按字典序。
+# 由 scripts/check.sh 核对，多一个少一个都报错。现在只用标准库，所以没有任何一行；新增模块先在这里用注释写明用途与来源。

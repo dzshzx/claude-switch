@@ -33,7 +33,8 @@ func claudeProcesses(proc, home string) ([]string, error) {
 			continue
 		}
 		environ, err := os.ReadFile(filepath.Join(dir, "environ"))
-		if err != nil {
+		// 读到空的：进程正在退出，内存已经放掉（exe 是在这之前读的）。它不再用令牌，不算；不能当成没设 HOME 而记到 home 头上
+		if err != nil || len(environ) == 0 {
 			continue
 		}
 		cmdline, err := os.ReadFile(filepath.Join(dir, "cmdline"))

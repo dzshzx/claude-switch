@@ -56,7 +56,7 @@ go install github.com/dzshzx/claude-switch@latest
 
 只支持 Linux（含 WSL）：它靠 `/proc` 认 Claude Code 进程，并且只管 Claude Code 在 Linux 上存放登录状态的那两个文件。
 
-版本号是 `vX.Y.Z` 的 Git tag，`claude-switch version` 打印装的是哪一版。维护者发版用 `bash scripts/release.sh`（默认不跑门禁，加 `--gate` 先跑一遍）：在 `master` 的头提交上编出两个架构的程序和 `SHA256SUMS`、打下一个 patch 版的 tag，再发带这些文件的 GitHub Release。
+版本号是 `vX.Y.Z` 的 Git tag，`claude-switch version` 打印装的是哪一版。维护者发版用 `rollout release claude-switch`，它派发 `.github/workflows/release.yml`（默认不跑门禁，加 `--gate` 先跑一遍）：在 `master` 的头提交上编出两个架构的程序和 `SHA256SUMS`、打下一个 patch 版的 tag，再发带这些文件的 GitHub Release。
 
 ## 用法
 

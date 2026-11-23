@@ -1,0 +1,268 @@
+name: Release
+
+# 发版：维护者手动派发（workflow_dispatch），在默认分支的头提交上编出 Linux amd64、arm64 两份静态程序
+# （带版本号，并用构建标签 selfupdate 编进 claude-switch update，只有这样的程序会自己更新）和它们的 SHA256SUMS，
+# 打下一个版本的附注 tag（vX.Y.Z），再发带这三个文件的 GitHub Release。
+# 版本从最高的纯 vX.Y.Z tag 按 bump 升一档，从 v0.0.1 起；minor、major 只在维护者明说要升时用。
+# 头提交已有发布了的 Release 就失败；只有 tag、Release 没发布（上次发版中途失败）时接着发这一版。
+# 门禁默认不跑（每个提交合入前已过门禁）；gate 打开时先跑 scripts/check.sh，没过就不发布。
+# dry_run 只算版本、编程序、核对版本并写运行摘要，不打 tag、不发 Release，可以在任意分支上跑。
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 从最高的 vX.Y.Z 升哪一位（minor、major 要维护者明说）
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      dry_run:
+        description: 只构建与核对，不打 tag、不发 Release
+        type: boolean
+        default: false
+      gate:
+        description: 跑全量门禁；默认不跑，合入门禁已查过
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # 排在门禁和构建前面：已发过版的提交尽早失败。
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      notes: ${{ steps.next.outputs.notes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 算版本与 Release 说明
+        id: next
+        env:
+          BUMP: ${{ inputs.bump }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$*"
+            exit 1
+          }
+          if [[ $DRY_RUN != true && $GITHUB_REF != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            fail "只从 $DEFAULT_BRANCH 发版，这次是 $GITHUB_REF（dry_run 不限分支）"
+          fi
+          pure='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          # 先赋值再用：git、gh 失败时由 set -e 中止，不把空输出当成「没有」。
+          tags=$(git tag -l 'v*' --sort=-v:refname)
+          head_tags=$(git tag --points-at HEAD)
+          head_tag=$(grep -E "$pure" <<<"$head_tags" | sort -V | tail -n 1 || true)
+          version=
+          if [[ -n $head_tag ]]; then
+            published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft | not) | .tag_name')
+            if grep -qxF "$head_tag" <<<"$published"; then
+              [[ $DRY_RUN == true ]] || fail "头提交已经发过版：$head_tag"
+              echo "头提交已经发过版（$head_tag），dry_run 照常按 $BUMP 算下一版"
+            else
+              version=$head_tag
+              echo "头提交上有 $head_tag，它的 Release 还没发布：接着发这一版"
+            fi
+          fi
+          # 上一版：除这次要发的以外最高的纯 vX.Y.Z tag。
+          last=$(grep -E "$pure" <<<"$tags" | awk -v skip="$version" '$0 != skip' | head -n 1 || true)
+          if [[ -z $version ]]; then
+            IFS=. read -r major minor patch <<<"${last#v}"
+            major=${major:-0} minor=${minor:-0} patch=${patch:-0}
+            case $BUMP in
+              patch) patch=$((patch + 1)) ;;
+              minor) minor=$((minor + 1)) patch=0 ;;
+              major) major=$((major + 1)) minor=0 patch=0 ;;
+              *) fail "不认识的 bump：$BUMP" ;;
+            esac
+            version=v$major.$minor.$patch
+            echo "最高的版本是 ${last:-（还没有）}，按 $BUMP 升到 $version"
+          fi
+          if [[ -n $last ]]; then
+            log=$(git log --no-merges --format='- %s' "$last..HEAD")
+            notes=$(grep -v '^- chore(gate)' <<<"$log" || true)
+            notes=${notes:-"- 只有门禁文件的同步"}
+          else
+            notes="第一个正式版本。"
+          fi
+          delim=notes_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+          {
+            echo "version=$version"
+            echo "notes<<$delim"
+            echo "$notes"
+            echo "$delim"
+          } >>"$GITHUB_OUTPUT"
+
+  gate:
+    needs: version
+    if: ${{ inputs.gate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # scripts/format.sh 经 uvx 取 shfmt、shellcheck，经 npx 取 prettier。
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.8'
+          enable-cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.13.1'
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: 门禁（scripts/check.sh）
+        run: bash scripts/check.sh
+
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      NOTES: ${{ needs.version.outputs.notes }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # 编进 Release 的程序：名字与 internal/selfupdate 的 AssetName、SumsAsset 一致。
+      - name: 编程序、写 SHA256SUMS、核对版本
+        run: |
+          set -euo pipefail
+          mkdir dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -tags selfupdate -ldflags "-s -w -X main.version=$VERSION" -o "dist/claude-switch-linux-$arch" .
+          done
+          (cd dist && sha256sum claude-switch-linux-* >SHA256SUMS)
+          got=$(dist/claude-switch-linux-amd64 version)
+          if [[ $got != "claude-switch $VERSION" ]]; then
+            echo "::error::编出的程序报的版本是「$got」，不是 $VERSION"
+            exit 1
+          fi
+
+      - name: 存下要发布的文件
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 运行摘要
+        run: |
+          {
+            echo "## claude-switch $VERSION（${GITHUB_SHA:0:12}）"
+            echo
+            if [[ $DRY_RUN == true ]]; then
+              echo "dry_run：构建与版本核对已过，没有打 tag，也没有发 Release。"
+              echo
+            fi
+            echo "Release 说明："
+            echo
+            echo "$NOTES"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: [version, gate, build]
+    # gate 没打开时被跳过；打开了没过就不发布。dry_run 不发布。
+    if: ${{ !cancelled() && !inputs.dry_run && needs.build.result == 'success' && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # 唯一能写的 job：打 tag、发 Release。
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      NOTES: ${{ needs.version.outputs.notes }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: 取构建好的文件
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/assets
+
+      - name: 按 SHA256SUMS 核对文件
+        working-directory: ${{ runner.temp }}/assets
+        run: sha256sum -c SHA256SUMS
+
+      # 顺序：删同名的旧草稿 → 建带全部文件的草稿 → 经 API 打附注 tag（已在本提交上就沿用，在别的提交上就失败）→ 转正。
+      # tag 不能删改，所以先把草稿备齐再打 tag；任何一步失败后重新派发即可，草稿外部看不到，本提交上的 tag 会被沿用。
+      - name: 打 tag、发 Release
+        working-directory: ${{ runner.temp }}/assets
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$*"
+            exit 1
+          }
+          repo="repos/$GH_REPO"
+          drafts=$(gh api --paginate "$repo/releases" --jq ".[] | select(.draft and .tag_name == \"$VERSION\") | .id")
+          for id in $drafts; do
+            echo "删掉 $VERSION 的旧草稿 $id"
+            gh api -X DELETE "$repo/releases/$id" >/dev/null
+          done
+          gh release create "$VERSION" --draft --title "$VERSION" --target "$GITHUB_SHA" --notes "$NOTES" \
+            claude-switch-linux-amd64 claude-switch-linux-arm64 SHA256SUMS
+          # 没有这个 tag 时 matching-refs 返回空数组；附注 tag 的 ref 指向 tag 对象，再取它指向的提交。
+          ref=$(gh api "$repo/git/matching-refs/tags/$VERSION" --jq ".[] | select(.ref == \"refs/tags/$VERSION\") | .object.type + \" \" + .object.sha")
+          if [[ -n $ref ]]; then
+            read -r type sha <<<"$ref"
+            if [[ $type == tag ]]; then
+              sha=$(gh api "$repo/git/tags/$sha" --jq .object.sha)
+            fi
+            [[ $sha == "$GITHUB_SHA" ]] || fail "tag $VERSION 已在 $sha 上，不是 $GITHUB_SHA"
+            echo "tag $VERSION 已在本提交上"
+          else
+            object=$(gh api "$repo/git/tags" -f tag="$VERSION" -f message="claude-switch $VERSION" \
+              -f object="$GITHUB_SHA" -f type=commit \
+              -f 'tagger[name]=github-actions[bot]' \
+              -f 'tagger[email]=41898282+github-actions[bot]@users.noreply.github.com' --jq .sha)
+            gh api "$repo/git/refs" -f ref="refs/tags/$VERSION" -f sha="$object" >/dev/null
+            echo "已在 $GITHUB_SHA 上打 $VERSION"
+          fi
+          gh release edit "$VERSION" --draft=false --verify-tag --latest
+          echo "已发版 $VERSION（${GITHUB_SHA:0:12}）" >>"$GITHUB_STEP_SUMMARY"
+
+      # 让 Go 模块代理马上收录这一版，别的模块升级时不用等它自己抓取；没收录到不影响已发的版本。
+      - name: 通知 Go 模块代理
+        run: |
+          curl -fsS --retry 3 -o /dev/null "https://proxy.golang.org/github.com/dzshzx/claude-switch/@v/$VERSION.info" ||
+            echo "::warning::Go 模块代理暂时没收录 $VERSION，它会自己抓取"

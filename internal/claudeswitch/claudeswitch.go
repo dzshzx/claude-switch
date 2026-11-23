@@ -79,7 +79,7 @@ var accountKeyPattern = regexp.MustCompile(`(?i)cache|oauth|account|subscription
 // DefaultLockTimeout 是等 Claude Code 的目录锁的时限。
 const DefaultLockTimeout = 10 * time.Second
 
-const usage = "用法: claude-switch [--json | <名字> | add <账号名> | remove <账号名> | version]\n" +
+const usage = "用法: claude-switch [--json | <名字> | add <账号名> | remove <账号名> | version | update]\n" +
 	"名字是账号名或非账号目标名（~/" + TargetsDir + "/<名字>.json）：小写字母、数字和连字符，字母或数字开头，至多 32 个字符"
 
 func isAccountKey(key string) bool {

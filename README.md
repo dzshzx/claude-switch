@@ -22,7 +22,7 @@ Claude Code 只有一个默认配置目录 `~/.claude`。claude-switch 换号，
 
 ## 安全边界
 
-- 只在本机挪文件：不联网，不调用任何接口，不在服务端登录或退出登录。
+- 换号只在本机挪文件：不联网，不调用任何接口，不在服务端登录或退出登录。只有 `claude-switch update` 联网，它只访问 GitHub 上本仓的 Release。
 - 不打印令牌：状态显示与 `--json` 只有账号名、邮箱、组织、套餐这类身份信息。
 - 用默认配置目录的 Claude Code 进程还在跑（终端会话、`claude rc`、后台进程、Claude Desktop 的远程会话）就拒绝；用 `CLAUDE_CONFIG_DIR` 另设配置目录的进程不算。读不了 `/proc` 时确认不了，同样拒绝。
 - 按 `~/.claude.json` 里的登录编号（`accountUuid`）认在用的是哪个号。认不出（编号没记过）、或凭据里有令牌却没有登录身份时拒绝，不把一个号的令牌存进另一个号的存档。
@@ -32,32 +32,31 @@ Claude Code 只有一个默认配置目录 `~/.claude`。claude-switch 换号，
 
 ## 安装
 
-需要 Go（`go.mod` 固定的版本；本机的 `go` 较旧时会自动下载这一版）。
+从 [Releases](https://github.com/dzshzx/claude-switch/releases) 下载编好的静态程序（Linux x86-64 是 `claude-switch-linux-amd64`，arm64 是 `claude-switch-linux-arm64`），放到 `PATH` 上的目录：
+
+```sh
+arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+mkdir -p ~/.local/bin
+curl -fL -o ~/.local/bin/claude-switch \
+  "https://github.com/dzshzx/claude-switch/releases/latest/download/claude-switch-linux-$arch"
+chmod 755 ~/.local/bin/claude-switch
+claude-switch version
+```
+
+Release 里另有 `SHA256SUMS`，可以用 `sha256sum -c --ignore-missing` 核对下载的程序。
+
+**更新**：`claude-switch update` 查 GitHub 上最新的 Release，比在跑的这份新就下载、核对哈希、跑一次确认版本对，再换掉自己；任何一步不成，原来的程序不动。只有从 Release 装的程序能这样更新。用 `go install` 装的，或别的程序当依赖编出来、带在身边的，版本由装它的一方定，`update` 拒绝（退出码 1）。
+
+也可以用 Go 从源码装（需要 `go.mod` 固定的 Go 版本；本机的 `go` 较旧时会自动下载这一版），程序装在 `$(go env GOPATH)/bin`：
 
 ```sh
 go install github.com/dzshzx/claude-switch@latest
-```
-
-程序装在 `$(go env GOPATH)/bin`（通常是 `~/go/bin`）。
-
-给另一台机器编（比如手机或树莓派上的 Linux，arm64；x86-64 写 `amd64`）：
-
-```sh
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install github.com/dzshzx/claude-switch@latest
-# 架构与本机不同时，程序在 $(go env GOPATH)/bin/linux_arm64/claude-switch
-```
-
-`CGO_ENABLED=0` 编出的是静态程序，拷过去就能跑。也可以从源码编：
-
-```sh
-git clone https://github.com/dzshzx/claude-switch.git
-cd claude-switch
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o claude-switch .
+# 给另一台机器编：GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install …，程序在 $(go env GOPATH)/bin/linux_arm64/
 ```
 
 只支持 Linux（含 WSL）：它靠 `/proc` 认 Claude Code 进程，并且只管 Claude Code 在 Linux 上存放登录状态的那两个文件。
 
-版本号是 `vX.Y.Z` 的 Git tag，`claude-switch version` 打印装的是哪一版。维护者发版用 `bash scripts/release.sh`：在 `master` 的头提交上跑门禁、打下一个 patch 版的 tag 并发 GitHub Release。
+版本号是 `vX.Y.Z` 的 Git tag，`claude-switch version` 打印装的是哪一版。维护者发版用 `bash scripts/release.sh`：在 `master` 的头提交上跑门禁、编出两个架构的程序和 `SHA256SUMS`、打下一个 patch 版的 tag，再发带这些文件的 GitHub Release。
 
 ## 用法
 
@@ -68,9 +67,10 @@ claude-switch <名字>            换到这个账号或非账号目标
 claude-switch add <账号名>      加一个账号
 claude-switch remove <账号名>   删掉一个不在用的账号的存档与记录
 claude-switch version           打印版本
+claude-switch update            从 Release 装的这份换成最新的 Release
 ```
 
-名字由小写字母、数字和连字符组成，字母或数字开头，至多 32 个字符；`add`、`remove`、`version`、`accounts`、`pending` 不能用。
+名字由小写字母、数字和连字符组成，字母或数字开头，至多 32 个字符；`add`、`remove`、`version`、`update`、`accounts`、`pending` 不能用。
 
 **第一次用**：默认配置目录里已经登录的那个号叫 `claude`，不用 add。`claude` 总能用作目标。
 
@@ -213,11 +213,11 @@ claude-switch cold-switches [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 **Why cold.** Each account's tokens exist exactly once, live or parked: refreshing invalidates the old refresh token, so a copy would be useless. A running Claude Code caches tokens in memory and rereads the files only when the access token expires (about 8 hours), so claude-switch refuses while any Claude Code process uses the default config directory (terminal sessions, `claude rc`, background processes, Claude Desktop remote sessions). Processes with their own `CLAUDE_CONFIG_DIR` do not count. If `/proc` cannot be read it refuses too.
 
-**Safety.** Local file moves only: no network, no API calls, no server-side logout. Tokens are never printed. The live login is identified by `accountUuid`; an unknown login, or tokens without an identity, are refused rather than parked under the wrong name. The whole plan is written to `pending.json` first and removed when done; if a switch fails midway, every later run refuses until you inspect the files and delete it (replaying it could overwrite newer refreshed tokens; the file contains tokens, do not share it). Claude Code's two lock directories are held while switching; a lock whose mtime is older than Claude Code's own stale threshold (10 s for `.claude.json.lock`, 60 s for `.oauth_refresh.lock`) is treated as left by a killed process and taken over, as Claude Code does. Files are replaced atomically and fsynced, mode 0600.
+**Safety.** Switching only moves local files: no network, no API calls, no server-side logout. Only `claude-switch update` goes online, and only to this repository's GitHub Releases. Tokens are never printed. The live login is identified by `accountUuid`; an unknown login, or tokens without an identity, are refused rather than parked under the wrong name. The whole plan is written to `pending.json` first and removed when done; if a switch fails midway, every later run refuses until you inspect the files and delete it (replaying it could overwrite newer refreshed tokens; the file contains tokens, do not share it). Claude Code's two lock directories are held while switching; a lock whose mtime is older than Claude Code's own stale threshold (10 s for `.claude.json.lock`, 60 s for `.oauth_refresh.lock`) is treated as left by a killed process and taken over, as Claude Code does. Files are replaced atomically and fsynced, mode 0600.
 
-**Install.** `go install github.com/dzshzx/claude-switch@latest`. For another Linux machine: `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install github.com/dzshzx/claude-switch@latest` (the binary lands in `$(go env GOPATH)/bin/linux_arm64/` when cross-compiling; use `amd64` for x86-64). Linux (including WSL) only. Versions are `vX.Y.Z` Git tags; `claude-switch version` prints the installed one.
+**Install.** Download the static binary for your architecture (`claude-switch-linux-amd64` or `claude-switch-linux-arm64`) from [Releases](https://github.com/dzshzx/claude-switch/releases) into a directory on `PATH`; `SHA256SUMS` lists their hashes. `claude-switch update` replaces a release binary with the latest release after checking its hash and that it runs and reports the expected version; binaries built from source or bundled by other programs refuse to update themselves (exit 1), since whoever built them owns their version. From source: `go install github.com/dzshzx/claude-switch@latest`. For another Linux machine: `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install github.com/dzshzx/claude-switch@latest` (the binary lands in `$(go env GOPATH)/bin/linux_arm64/` when cross-compiling; use `amd64` for x86-64). Linux (including WSL) only. Versions are `vX.Y.Z` Git tags; `claude-switch version` prints the installed one.
 
-**Usage.** `claude-switch` shows the status; `--json` prints it for programs (no tokens); `claude-switch <name>` switches to an account or settings target; `add <name>` adds an account (parks and logs out the live one, or just names an unrecorded live login); `remove <name>` deletes a parked account's local copy; `version`. The login already present on first use is called `claude`, which is always a valid target. Names: lowercase letters, digits and hyphens, starting with a letter or digit, up to 32 characters.
+**Usage.** `claude-switch` shows the status; `--json` prints it for programs (no tokens); `claude-switch <name>` switches to an account or settings target; `add <name>` adds an account (parks and logs out the live one, or just names an unrecorded live login); `remove <name>` deletes a parked account's local copy; `version`; `update` (see Install). The login already present on first use is called `claude`, which is always a valid target. Names: lowercase letters, digits and hyphens, starting with a letter or digit, up to 32 characters.
 
 **Settings targets.** Put a Claude Code settings file (a JSON object) at `~/.config/claude-switch/targets/<name>.json`. `claude-switch <name>` parks and logs out the live account and records `<name>`; it only checks that the file is a JSON object and never runs anything in it. Start `claude` with `--settings <that file>`; the shell function in the Chinese section above does this automatically when the current record names a target.
 

@@ -31,7 +31,7 @@ const currentFile = StateDir + "/current"
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 // reservedNames 不能当名字：claude-switch 的子命令，以及状态目录里别的文件的名字（存档是 <账号名>.json）。
-var reservedNames = []string{"add", "remove", "version", "accounts", "pending"}
+var reservedNames = []string{"add", "remove", "version", "update", "accounts", "pending"}
 
 // Valid 报告 name 能不能当账号名或非账号目标名：合写法、不是保留名。
 func Valid(name string) bool {

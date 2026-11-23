@@ -63,8 +63,8 @@ import (
 // builtinAccounts 是总能用作目标的账号，状态显示时排在最前。
 var builtinAccounts = []string{account.Default}
 
-// TargetsDir 是非账号目标的设置文件所在目录（相对 HOME），每个目标一份 <名字>.json。
-const TargetsDir = ".config/claude-switch/targets"
+// TargetsDir 是非账号目标的设置文件所在目录（相对 HOME），见 account.TargetsDir。
+const TargetsDir = account.TargetsDir
 
 // sharedCredentialKeys 是凭据里各号共用的字段：Claude Code 完整退出登录时只写回 coworkRemoteDevice，
 // mcpOAuth 是用户自配 MCP 服务的授权，换号时留着免得逐个重新授权。
@@ -161,14 +161,8 @@ func (p paths) slot(name string) string { return filepath.Join(p.state, name+".j
 // settings 是非账号目标 name 的设置文件。
 func (p paths) settings(name string) string { return filepath.Join(p.targets, name+".json") }
 
-// isTarget：name 是非账号目标，即目标目录里有 <name>.json 这份普通文件（可以经符号链接）。
-func (p paths) isTarget(name string) bool {
-	if !account.Valid(name) {
-		return false
-	}
-	info, err := os.Stat(p.settings(name))
-	return err == nil && info.Mode().IsRegular()
-}
+// isTarget：name 是非账号目标（account.IsTarget）。
+func (p paths) isTarget(name string) bool { return account.IsTarget(p.home, name) }
 
 // isAccountName：能当 claude.ai 账号名（非账号目标的名字不算）。
 func (p paths) isAccountName(name string) bool { return account.Valid(name) && !p.isTarget(name) }

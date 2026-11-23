@@ -191,7 +191,7 @@ claude() {
 
 ## 给别的程序用
 
-想知道一个 Claude Code 进程属于哪个账号（比如在 hook 里按账号统计会话），可以用 Go 包 `github.com/dzshzx/claude-switch/account`：`account.Name()` 在默认配置目录下返回切换记录里的名字，另设 `CLAUDE_CONFIG_DIR` 时返回目录名（去掉开头的点）。
+想知道一个 Claude Code 进程属于哪个账号（比如在 hook 里按账号统计会话），可以用 Go 包 `github.com/dzshzx/claude-switch/account`：`account.Name()` 在默认配置目录下返回切换记录里的名字，另设 `CLAUDE_CONFIG_DIR` 时返回目录名（去掉开头的点）。`account.IsTarget(home, name)` 报告这个名字是不是非账号目标（没有账号的额度，统计时可以和账号分开）。
 
 ## 与 Claude Code 的关系
 
@@ -225,6 +225,6 @@ claude-switch cold-switches [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 **`--json` fields.** `current` (recorded name), `live` (live login or `null`; empty `name` means unrecognized), `accounts` (known accounts with `name`, `current`, `parked`, `uuid`, `email`, `organization`, `displayName`, `subscription`, `refreshExpiresAt` in Unix ms; empty fields omitted), `targets` (`name`, `settings`), `pending`, `running` (`"pid command line"` entries).
 
-**For other programs.** The Go package `github.com/dzshzx/claude-switch/account` tells which account a Claude Code process belongs to (`account.Name()`).
+**For other programs.** The Go package `github.com/dzshzx/claude-switch/account` tells which account a Claude Code process belongs to (`account.Name()`) and whether a name is a settings target (`account.IsTarget(home, name)`).
 
 License: [MIT](LICENSE).

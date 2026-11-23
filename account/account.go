@@ -19,6 +19,9 @@ import (
 	"github.com/dzshzx/claude-switch/internal/safefile"
 )
 
+// TargetsDir 是非账号目标的设置文件所在目录（相对 HOME），每个目标一份 <名字>.json。
+const TargetsDir = ".config/claude-switch/targets"
+
 // Default 是没有切换记录时的名字，也是默认配置目录里第一个登录的账号的名字。
 const Default = "claude"
 
@@ -98,4 +101,14 @@ func realpath(path string) string {
 		return abs
 	}
 	return filepath.Join(realpath(parent), filepath.Base(abs))
+}
+
+// IsTarget 报告 name 是不是 home 下的非账号目标：合 Valid，且 TargetsDir 里有 <name>.json 这份普通文件（可以经符号链接）。
+// 非账号目标不登录 claude.ai，没有账号的额度；按账号统计用量的程序据此把它和账号分开。
+func IsTarget(home, name string) bool {
+	if !Valid(name) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(home, TargetsDir, name+".json"))
+	return err == nil && info.Mode().IsRegular()
 }

@@ -111,3 +111,21 @@ func TestOtherConfigDirIsNamedAfterItsDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestIsTargetNeedsAValidNameAndARegularFile(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, TargetsDir)
+	if err := os.MkdirAll(filepath.Join(dir, "folder.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"gateway", "add"} {
+		if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, want := range map[string]bool{"gateway": true, "folder": false, "add": false, "missing": false, "Bad": false} {
+		if got := IsTarget(home, name); got != want {
+			t.Errorf("IsTarget(%q) = %v，期望 %v", name, got, want)
+		}
+	}
+}

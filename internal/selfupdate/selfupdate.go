@@ -1,7 +1,7 @@
 // Package selfupdate 把从 GitHub Release 装的 claude-switch 换成最新的 Release。
 //
-// 只有 Release 里的程序会自己更新（发版时编进了 release 标记）。go install 装的，或别的程序当依赖编出来、
-// 带在自己身边的（比如 Zeta），版本由装它的一方定，这里拒绝，免得和那一方固定的版本对不上。
+// 只有 Release 里的程序带这段代码（发版时用构建标签 selfupdate 编，见仓根 update_release.go）。go install 装的，
+// 或别的程序当依赖编出来、带在自己身边的（比如 Zeta），版本由装它的一方定，不带它，也就不联网。
 //
 // 流程：问 GitHub 最新的 Release；它不比在跑的这份新就不动。否则下载本机架构的程序和 SHA256SUMS，核对哈希，
 // 在程序所在的目录写成临时文件，跑一次 version 确认能运行、版本对得上，再改名换掉原来的程序。
@@ -15,7 +15,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,16 +35,12 @@ const SumsAsset = "SHA256SUMS"
 // AssetName 是 Release 里给 arch 架构的 Linux 程序的文件名。
 func AssetName(arch string) string { return "claude-switch-linux-" + arch }
 
-// ErrNotRelease 表示在跑的这份不是从 Release 装的，不自己更新。
-var ErrNotRelease = errors.New("not a release build")
-
-// Updater 更新 Exe 这个程序。Current 是它的版本（vX.Y.Z），Release 为假时拒绝更新。
+// Updater 更新 Exe 这个程序。Current 是它的版本（vX.Y.Z）。
 type Updater struct {
 	API     string
 	Client  *http.Client
 	Exe     string
 	Current string
-	Release bool
 	Arch    string
 	Stdout  io.Writer
 }
@@ -69,9 +64,6 @@ func (r release) asset(name string) (string, bool) {
 
 // Run 查最新的 Release，比在跑的新就换上它。
 func (u *Updater) Run(ctx context.Context) error {
-	if !u.Release {
-		return ErrNotRelease
-	}
 	current, ok := parse(u.Current)
 	if !ok {
 		return fmt.Errorf("认不出在跑的版本 %q", u.Current)

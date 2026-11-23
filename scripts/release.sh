@@ -1,6 +1,6 @@
 #!/bin/bash
-# 发版：在 origin/master 的头提交上跑门禁，编出 Linux amd64、arm64 两份程序（带版本号和 release 标记，claude-switch update
-# 只更新这样的程序）和它们的 SHA256SUMS，打下一个版本的 tag（vX.Y.Z）并推送，再发带这三个文件的 GitHub Release。
+# 发版：在 origin/master 的头提交上跑门禁，编出 Linux amd64、arm64 两份程序（带版本号，并用构建标签 selfupdate 编进 claude-switch update，
+# 只有这样的程序会自己更新）和它们的 SHA256SUMS，打下一个版本的 tag（vX.Y.Z）并推送，再发带这三个文件的 GitHub Release。
 # 版本从 v0.0.1 起，默认只升 patch；minor、major 只在维护者明说要升时用。
 # 用法：bash scripts/release.sh [patch|minor|major]
 # 要求：检出的就是 origin/master 的头提交、工作树干净、这个提交还没发过版；gh 已登录。
@@ -47,7 +47,7 @@ bash scripts/check.sh
 assets=$(mktemp -d)
 for arch in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-    -ldflags "-s -w -X main.version=$version -X main.channel=release" -o "$assets/claude-switch-linux-$arch" .
+    -tags selfupdate -ldflags "-s -w -X main.version=$version" -o "$assets/claude-switch-linux-$arch" .
 done
 (cd "$assets" && sha256sum claude-switch-linux-* >SHA256SUMS)
 if [[ $(uname -m) == x86_64 ]] && [[ $("$assets/claude-switch-linux-amd64" version) != "claude-switch $version" ]]; then

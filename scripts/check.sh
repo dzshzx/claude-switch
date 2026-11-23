@@ -21,8 +21,20 @@ gate_go_version .
 GO="$(go env GOROOT)/bin/go"
 
 "$GO" vet ./...
+# 会自己更新的 update 只在带构建标签 selfupdate 时编进去（update_release.go，发版用）：这一份也要过 vet。
+"$GO" vet -tags selfupdate ./...
+# 默认编出的程序不带联网的代码，带 selfupdate 的才带：给 Zeta 这类当依赖编进去的省下体积，也不会联网。
+if "$GO" list -deps . | grep -qx net/http; then
+  echo "check: 默认编出的程序链接了 net/http，自更新的代码只该在带 selfupdate 标签时编进去" >&2
+  exit 1
+fi
+"$GO" list -tags selfupdate -deps . | grep -qx net/http || {
+  echo "check: 带 selfupdate 标签编出的程序没有链接 net/http，自更新没编进去" >&2
+  exit 1
+}
 # staticcheck 用默认规则集。
 gate_go_run "$STATICCHECK" ./...
+gate_go_run "$STATICCHECK" -tags selfupdate ./...
 # 测试在临时 HOME 里跑，起的假 Claude Code 进程用完即杀；-count=1 不走测试缓存（测试读 /proc，缓存看不到这类输入）。
 "$GO" test -count=1 -race -vet=off ./...
 # gocognit 只读源码，有函数超线时列出并非零退出。复杂度不认代码里的豁免标记，gocognit 没有关掉它的开关，这里直接查标记。

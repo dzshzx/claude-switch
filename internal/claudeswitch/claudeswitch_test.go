@@ -678,6 +678,52 @@ func TestBusyLockChangesNothing(t *testing.T) {
 	}
 }
 
+// 拿着锁的进程被强行结束时留下的锁：修改时间早于 Claude Code 判它过期的时限就接管，换号照做，做完放掉；
+// 没到时限的照样当作有人拿着，等到时限为止后拒绝。
+func TestStaleLocksAreTakenOver(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		lock string
+		age  time.Duration
+		took bool
+	}{
+		{"配置锁过了 10 秒", ".claude.json.lock", 11 * time.Second, true},
+		{"配置锁刚建", ".claude.json.lock", 0, false},
+		{"续期锁过了 60 秒", ".claude/.oauth_refresh.lock", 61 * time.Second, true},
+		{"续期锁 30 秒前", ".claude/.oauth_refresh.lock", 30 * time.Second, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			e := setup(t)
+			dir := filepath.Join(e.home, c.lock)
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			old := time.Now().Add(-c.age)
+			if err := os.Chtimes(dir, old, old); err != nil {
+				t.Fatal(err)
+			}
+			e.lockTimeout = 0
+			if !c.took {
+				e.assertRefused(2, "一直被占用", "second")
+				if !e.exists(dir) {
+					t.Error("没过期的锁不该删")
+				}
+				return
+			}
+			e.ok("second")
+			e.same(e.read(e.creds), merge(sharedCreds, secondCreds), "凭据")
+			for _, l := range []string{".claude.json.lock", ".claude/.oauth_refresh.lock"} {
+				if e.exists(filepath.Join(e.home, l)) {
+					t.Errorf("%s 用完没放掉", l)
+				}
+			}
+		})
+	}
+}
+
 func TestCommandLineUsageError(t *testing.T) {
 	t.Parallel()
 	e := setup(t)

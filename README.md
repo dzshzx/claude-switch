@@ -27,7 +27,7 @@ Claude Code 只有一个默认配置目录 `~/.claude`。claude-switch 换号，
 - 用默认配置目录的 Claude Code 进程还在跑（终端会话、`claude rc`、后台进程、Claude Desktop 的远程会话）就拒绝；用 `CLAUDE_CONFIG_DIR` 另设配置目录的进程不算。读不了 `/proc` 时确认不了，同样拒绝。
 - 按 `~/.claude.json` 里的登录编号（`accountUuid`）认在用的是哪个号。认不出（编号没记过）、或凭据里有令牌却没有登录身份时拒绝，不把一个号的令牌存进另一个号的存档。
 - 写文件前先把整份计划写进 `pending.json`，写完删掉。中途出错时它留作现场，之后每次运行都拒绝，不自动补做（补做会用计划里的旧令牌覆盖这期间续期出的新令牌）。
-- 换号时拿着 Claude Code 写这些文件时用的两把目录锁（`~/.claude/.oauth_refresh.lock`、`~/.claude.json.lock`）。
+- 换号时拿着 Claude Code 写这些文件时用的两把目录锁（`~/.claude/.oauth_refresh.lock`、`~/.claude.json.lock`）。锁被占着就等，最多 10 秒；锁目录的修改时间超过 Claude Code 判它过期的时限（`.claude.json.lock` 10 秒、`.oauth_refresh.lock` 60 秒）还没更新，就当作拿着它的进程已被强行结束，和 Claude Code 一样删掉再取。
 - 存档与凭据整份替换、落盘，权限 0600。
 
 ## 安装
@@ -56,6 +56,8 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o claude-switch .
 ```
 
 只支持 Linux（含 WSL）：它靠 `/proc` 认 Claude Code 进程，并且只管 Claude Code 在 Linux 上存放登录状态的那两个文件。
+
+版本号是 `vX.Y.Z` 的 Git tag，`claude-switch version` 打印装的是哪一版。维护者发版用 `bash scripts/release.sh`：在 `master` 的头提交上跑门禁、打下一个 patch 版的 tag 并发 GitHub Release。
 
 ## 用法
 
@@ -211,9 +213,9 @@ claude-switch cold-switches [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 **Why cold.** Each account's tokens exist exactly once, live or parked: refreshing invalidates the old refresh token, so a copy would be useless. A running Claude Code caches tokens in memory and rereads the files only when the access token expires (about 8 hours), so claude-switch refuses while any Claude Code process uses the default config directory (terminal sessions, `claude rc`, background processes, Claude Desktop remote sessions). Processes with their own `CLAUDE_CONFIG_DIR` do not count. If `/proc` cannot be read it refuses too.
 
-**Safety.** Local file moves only: no network, no API calls, no server-side logout. Tokens are never printed. The live login is identified by `accountUuid`; an unknown login, or tokens without an identity, are refused rather than parked under the wrong name. The whole plan is written to `pending.json` first and removed when done; if a switch fails midway, every later run refuses until you inspect the files and delete it (replaying it could overwrite newer refreshed tokens; the file contains tokens, do not share it). Claude Code's two lock directories are held while switching. Files are replaced atomically and fsynced, mode 0600.
+**Safety.** Local file moves only: no network, no API calls, no server-side logout. Tokens are never printed. The live login is identified by `accountUuid`; an unknown login, or tokens without an identity, are refused rather than parked under the wrong name. The whole plan is written to `pending.json` first and removed when done; if a switch fails midway, every later run refuses until you inspect the files and delete it (replaying it could overwrite newer refreshed tokens; the file contains tokens, do not share it). Claude Code's two lock directories are held while switching; a lock whose mtime is older than Claude Code's own stale threshold (10 s for `.claude.json.lock`, 60 s for `.oauth_refresh.lock`) is treated as left by a killed process and taken over, as Claude Code does. Files are replaced atomically and fsynced, mode 0600.
 
-**Install.** `go install github.com/dzshzx/claude-switch@latest`. For another Linux machine: `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install github.com/dzshzx/claude-switch@latest` (the binary lands in `$(go env GOPATH)/bin/linux_arm64/` when cross-compiling; use `amd64` for x86-64). Linux (including WSL) only.
+**Install.** `go install github.com/dzshzx/claude-switch@latest`. For another Linux machine: `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install github.com/dzshzx/claude-switch@latest` (the binary lands in `$(go env GOPATH)/bin/linux_arm64/` when cross-compiling; use `amd64` for x86-64). Linux (including WSL) only. Versions are `vX.Y.Z` Git tags; `claude-switch version` prints the installed one.
 
 **Usage.** `claude-switch` shows the status; `--json` prints it for programs (no tokens); `claude-switch <name>` switches to an account or settings target; `add <name>` adds an account (parks and logs out the live one, or just names an unrecorded live login); `remove <name>` deletes a parked account's local copy; `version`. The login already present on first use is called `claude`, which is always a valid target. Names: lowercase letters, digits and hyphens, starting with a letter or digit, up to 32 characters.
 

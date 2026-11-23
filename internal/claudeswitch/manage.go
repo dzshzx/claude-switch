@@ -144,7 +144,7 @@ func (s *Switcher) statusJSON(p paths) error {
 
 // remove 删掉一个不在用的账号的存档与 accounts.json 里的记录。
 func (s *Switcher) remove(p paths, name string) error {
-	err := s.locked([]string{p.refreshLock, p.configLock}, func() error {
+	err := s.locked([]lockDir{p.refreshLock, p.configLock}, func() error {
 		if exists(p.pending) {
 			return fail(1, "%s", interrupted(p))
 		}

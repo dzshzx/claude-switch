@@ -137,7 +137,8 @@ func (s *Switcher) running(home string) ([]string, error) {
 }
 
 type paths struct {
-	home, credentials, config, state, accounts, pending, targets, refreshLock, configLock string
+	home, credentials, config, state, accounts, pending, targets string
+	refreshLock, configLock                                      lockDir
 }
 
 func newPaths(home string) paths {
@@ -150,8 +151,8 @@ func newPaths(home string) paths {
 		accounts:    filepath.Join(state, "accounts.json"),
 		pending:     filepath.Join(state, "pending.json"),
 		targets:     filepath.Join(home, TargetsDir),
-		refreshLock: filepath.Join(home, ".claude/.oauth_refresh.lock"),
-		configLock:  filepath.Join(home, ".claude.json.lock"),
+		refreshLock: lockDir{filepath.Join(home, ".claude/.oauth_refresh.lock"), refreshLockStale},
+		configLock:  lockDir{filepath.Join(home, ".claude.json.lock"), configLockStale},
 	}
 }
 
@@ -573,27 +574,55 @@ func (s *Switcher) status(p paths) error {
 	return nil
 }
 
-// locked 依次取 Claude Code 写文件前用的 mkdir 锁（proper-lockfile），跑完 run 后倒序放掉。
-func (s *Switcher) locked(dirs []string, run func() error) error {
-	if len(dirs) == 0 {
+// lockDir 是 Claude Code 写文件前取的一把 mkdir 锁（它内置的 proper-lockfile）和 Claude Code 判它过期的时限：
+// 锁目录的修改时间早于「现在减 stale」就算过期（持锁的进程活着时会在这之前刷新修改时间），等锁的一方删掉它再取。
+// 拿着锁的进程被强行结束（kill -9、内存不足被杀、断电）时留下的锁靠这个收回，不然会一直挡着换号。
+type lockDir struct {
+	path  string
+	stale time.Duration
+}
+
+// Claude Code（2.1.330）给这两把锁的过期时限：~/.claude.json.lock 没指定，用加锁库默认的 10 秒；
+// OAuth 续期锁指定 60 秒。
+const (
+	configLockStale  = 10 * time.Second
+	refreshLockStale = 60 * time.Second
+)
+
+// locked 依次取 locks，跑完 run 后倒序放掉。锁被占着就等，等到 LockTimeout 为止；过期的锁当作没人拿着，删掉再取。
+func (s *Switcher) locked(locks []lockDir, run func() error) error {
+	if len(locks) == 0 {
 		return run()
 	}
+	l := locks[0]
 	deadline := time.Now().Add(s.LockTimeout)
 	for {
-		err := os.Mkdir(dirs[0], 0o777)
+		err := os.Mkdir(l.path, 0o777)
 		if err == nil {
 			break
 		}
 		if !errors.Is(err, fs.ErrExist) {
 			return err
 		}
+		if stale(l) {
+			if err := os.Remove(l.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			continue
+		}
 		if !time.Now().Before(deadline) {
-			return fail(2, "%s 一直被占用；确认没有 Claude Code 在跑后删掉这个目录再试", dirs[0])
+			return fail(2, "%s 一直被占用：有 Claude Code 拿着它，或拿着它的进程刚结束（%v 没更新才算过期）；稍后再试", l.path, l.stale)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	defer func() { _ = os.Remove(dirs[0]) }()
-	return s.locked(dirs[1:], run)
+	defer func() { _ = os.Remove(l.path) }()
+	return s.locked(locks[1:], run)
+}
+
+// stale 是锁目录已经过期：修改时间早于「现在减 l.stale」。读不到（刚被放掉）时不算。
+func stale(l lockDir) bool {
+	info, err := os.Stat(l.path)
+	return err == nil && info.ModTime().Before(time.Now().Add(-l.stale))
 }
 
 func (s *Switcher) switchTo(p paths, target string, adding bool) error {
@@ -602,7 +631,7 @@ func (s *Switcher) switchTo(p paths, target string, adding bool) error {
 	}
 	var pl plan
 	var before string
-	err := s.locked([]string{p.refreshLock, p.configLock}, func() error {
+	err := s.locked([]lockDir{p.refreshLock, p.configLock}, func() error {
 		running, err := s.running(p.home)
 		if err != nil {
 			return err

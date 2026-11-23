@@ -1,19 +1,23 @@
 #!/bin/bash
-# 发版：在 origin/master 的头提交上跑门禁，编出 Linux amd64、arm64 两份程序（带版本号，并用构建标签 selfupdate 编进 claude-switch update，
+# 发版：在 origin/master 的头提交上编出 Linux amd64、arm64 两份程序（带版本号，并用构建标签 selfupdate 编进 claude-switch update，
 # 只有这样的程序会自己更新）和它们的 SHA256SUMS，打下一个版本的 tag（vX.Y.Z）并推送，再发带这三个文件的 GitHub Release。
 # 版本从 v0.0.1 起，默认只升 patch；minor、major 只在维护者明说要升时用。
-# 用法：bash scripts/release.sh [patch|minor|major]
+# 门禁默认不跑（每个提交合入时已过 wt land 的门禁）；加 --gate 先跑一遍 scripts/check.sh。
+# 用法：bash scripts/release.sh [patch|minor|major] [--gate]
 # 要求：检出的就是 origin/master 的头提交、工作树干净、这个提交还没发过版；gh 已登录。
 set -euo pipefail
 
-bump=${1:-patch}
-case $bump in
-  patch | minor | major) ;;
-  *)
-    echo "用法：bash scripts/release.sh [patch|minor|major]" >&2
-    exit 2
-    ;;
-esac
+bump=patch gate=false
+for arg in "$@"; do
+  case $arg in
+    patch | minor | major) bump=$arg ;;
+    --gate) gate=true ;;
+    *)
+      echo "用法：bash scripts/release.sh [patch|minor|major] [--gate]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 cd "$(git rev-parse --show-toplevel)"
 git fetch -q --tags origin
@@ -41,7 +45,11 @@ case $bump in
 esac
 version=v$major.$minor.$patch
 
-bash scripts/check.sh
+if $gate; then
+  bash scripts/check.sh
+else
+  echo "门禁按默认不跑（要跑加 --gate）"
+fi
 
 # 编进 Release 的程序：名字与 internal/selfupdate 的 AssetName、SumsAsset 一致
 assets=$(mktemp -d)

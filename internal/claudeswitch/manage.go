@@ -21,6 +21,9 @@ type accountInfo struct {
 	Organization string `json:"organization,omitempty"`
 	DisplayName  string `json:"displayName,omitempty"`
 	Subscription string `json:"subscription,omitempty"`
+	// Plan 是套餐的展示名（Pro、Max、Ultra…），Claude Code 照服务器的账号资料写进 ~/.claude.json；Subscription 只分 pro、max、
+	// team、enterprise，同一类里的档位（Max 与 Ultra）只在这里分得开。没有时省略，调用方回落到 Subscription。
+	Plan string `json:"plan,omitempty"`
 	// RefreshExpiresAt 是续期凭证的到期时间（Unix 毫秒），过了就要重新 /login；凭据里没有时省略
 	RefreshExpiresAt *int64 `json:"refreshExpiresAt,omitempty"`
 }
@@ -54,6 +57,7 @@ func describe(name string, config, credentials *object) accountInfo {
 	info.Email = str(oauthField(config, "emailAddress"))
 	info.Organization = str(oauthField(config, "organizationName"))
 	info.DisplayName = str(oauthField(config, "displayName"))
+	info.Plan = str(oauthField(config, "planDisplayName"))
 	if oauth, err := credentials.child("claudeAiOauth"); err == nil {
 		raw, _ := oauth.get("subscriptionType")
 		info.Subscription = str(raw)

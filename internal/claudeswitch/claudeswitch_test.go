@@ -866,6 +866,49 @@ func TestJSONStatusHasIdentitiesButNoTokens(t *testing.T) {
 	}
 }
 
+// TestJSONStatusReportsPlanName：套餐名 plan 取 ~/.claude.json 里 oauthAccount.planDisplayName（Claude Code 照服务器的账号资料
+// 写的，Max 20x 现在叫 Ultra），和凭据里粗粒度的 subscriptionType（Ultra 的号仍是 max）分开报；没有时省略。
+func TestJSONStatusReportsPlanName(t *testing.T) {
+	t.Parallel()
+	e := setup(t)
+	e.recordAccounts()
+	e.write(e.slot("second"), obj{
+		"credentials": obj{"claudeAiOauth": obj{"accessToken": "b-token", "refreshToken": "b-refresh", "subscriptionType": "max"}},
+		"config":      obj{"oauthAccount": obj{"accountUuid": "uuid-b", "emailAddress": "b@example.com", "planDisplayName": "Ultra"}},
+	})
+	status := func() (live *accountInfo, accounts map[string]accountInfo) {
+		var got statusReport
+		if err := json.Unmarshal([]byte(e.ok("--json")), &got); err != nil {
+			t.Fatal(err)
+		}
+		accounts = map[string]accountInfo{}
+		for _, a := range got.Accounts {
+			accounts[a.Name] = a
+		}
+		return got.Live, accounts
+	}
+
+	// 在用的号资料里没有套餐名：不报 plan；存档里的号报它资料里的名字，subscription 照凭据
+	live, accounts := status()
+	if live == nil || live.Plan != "" {
+		t.Errorf("没有 planDisplayName 的在用登录：live = %+v", live)
+	}
+	if got := accounts["second"]; got.Plan != "Ultra" || got.Subscription != "max" {
+		t.Errorf("存档里的号：plan = %q，subscription = %q，期望 Ultra、max", got.Plan, got.Subscription)
+	}
+	if got := accounts["claude"]; got.Plan != "" {
+		t.Errorf("没有 planDisplayName 的号报了 plan = %q", got.Plan)
+	}
+
+	// 在用的号有套餐名：报它
+	config := e.read(e.config)
+	config["oauthAccount"].(obj)["planDisplayName"] = "Pro"
+	e.write(e.config, config)
+	if live, _ = status(); live == nil || live.Plan != "Pro" {
+		t.Errorf("在用登录的 plan：live = %+v，期望 Pro", live)
+	}
+}
+
 // TestJSONFieldNames 固定 --json 的字段名：别的程序（如手机客户端的账号页）按名字读。
 func TestJSONFieldNames(t *testing.T) {
 	t.Parallel()

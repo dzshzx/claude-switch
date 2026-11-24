@@ -589,6 +589,10 @@ func (s *Switcher) locked(locks []lockDir, run func() error) error {
 		return run()
 	}
 	l := locks[0]
+	// 锁目录的上级（~/.claude）还没有时先建：没装过或没跑过 Claude Code 的主机上它不存在，换号要写的凭据也在里面。
+	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
+		return err
+	}
 	deadline := time.Now().Add(s.LockTimeout)
 	for {
 		err := os.Mkdir(l.path, 0o777)

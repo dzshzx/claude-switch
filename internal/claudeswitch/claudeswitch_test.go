@@ -906,3 +906,20 @@ func TestMarshalKeepsHTMLCharacters(t *testing.T) {
 		t.Fatal("marshal(NaN) 应报错")
 	}
 }
+
+// 没装过或没跑过 Claude Code 的主机上没有 ~/.claude：换到非账号目标照样成功，续期锁的上级目录随之建好、锁放掉。
+func TestSwitchWithoutClaudeDirectory(t *testing.T) {
+	t.Parallel()
+	e := setup(t)
+	e.target("gateway", `{"env":{"ANTHROPIC_BASE_URL":"https://gateway.example"}}`)
+	if err := os.RemoveAll(filepath.Join(e.home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, e.ok("gateway"), "已换到 gateway")
+	if !e.exists(filepath.Join(e.home, ".claude")) {
+		t.Error("没建 ~/.claude")
+	}
+	if e.exists(filepath.Join(e.home, ".claude/.oauth_refresh.lock")) {
+		t.Error("续期锁没放掉")
+	}
+}
